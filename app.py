@@ -1,9 +1,4 @@
-from urllib.parse import quote
-
 from flask import Flask, render_template, request, send_from_directory
-from psycopg import Error as PsycopgError
-
-from database import save_game_upload
 
 app = Flask(__name__)
 
@@ -11,10 +6,10 @@ app = Flask(__name__)
 def service_worker():
     return send_from_directory("static", "sw.js")
 
-
 @app.route("/saved_games")
 def saved_games():
     return render_template("saved_games.html")
+
 
 
 # -------------------------
@@ -22,48 +17,44 @@ def saved_games():
 # -------------------------
 plays_by_category = {
     "Man Offense": [
-        "2 High", "4 High", "5 out", "Boston", "Box", "Celtic", "Chin",
-        "Duke", "Hi Low", "Jersey", "Muchilla", "Nova", "NY",
-        "Oregon", "Power", "Rub", "Texas", "Through", "Transition"
+        "2 High","4 High","4 High Box","5 out","Boston","Box","Celtic","Chin","Duke",
+        "Hi Low","Jersey","Muchilla","Nova","NY","Oregon","Power","Rub",
+        "Texas","Through","Transition"
     ],
     "Zone Offense": [
-        "14", "32", "5 out", "Hi Low", "Michigan", "NY", "Sparkle"
+        "14","32", "5 out","Chin", "Hope", "Hi Low","Michigan","NY", "Power", "Sparkle", "Triangle"
     ],
     "Blob": [
-        "Box", "Strong", "L", "Weak", "O", "X", "K"
+        "Box","K", "L","O", "Strong","L","Weak", "Weak Rev", "X"
     ],
     "Slob": [
-        "Irish", "Atlanta"
+        "Atlanta", "Irish", "Slice", "Vegas" 
     ],
     "Defense": [
-        "Man", "3-2 Zone", "2-3 Zone", "Tri and 2",
-        "2-3 High Man", "2-3 High 3-2", "2-3 High 2-3",
-        "Twilight", "Marquette", "Transition"
+        "1", "2-3", "3-2", "21", "22", "23", "Marquette", "Shakers", "Tri and 2", "Transition"
     ]
 }
-
 
 # -------------------------
 # STAT ENTRY PAGE
 # -------------------------
 @app.route("/stat/<cat>/<play>", methods=["GET", "POST"])
 def stat(cat, play):
-
+    # Choose counters based on category
     offense_counters = [
         "LUM","LUA","UnCon LUM","UnCon LUA",
-        "MidM","MidA","3ptM","3ptA","FTM","FTA",
-        "O Reb","2nd Chance",
-        "D Foul","O Foul","Turnover","Ran"
+        "MidM","MidA","3ptM","3ptA","FTM", "FTA", "O Reb","2nd Chance",
+        "D Foul", "O Foul","Turnover", "Ran"
     ]
 
     defense_counters = [
         "Off Reb","2nd Chance","D Reb","D Foul",
-        "FTM","FTA","O Foul","Tip",
-        "Turnover","Clost Out","Ran"
+        "FTM","FTA","O Foul","Tip","Turnover","Clost Out", "Ran"
     ]
 
     counters = defense_counters if cat == "Defense" else offense_counters
 
+    # Initialize stats storage
     global stats
     if "stats" not in globals():
         stats = {}
@@ -74,28 +65,18 @@ def stat(cat, play):
     if play not in stats[cat]:
         stats[cat][play] = {c: 0 for c in counters}
 
+    # Handle button clicks
     if request.method == "POST":
         counter_clicked = request.form["counter"]
         stats[cat][play][counter_clicked] += 1
 
     return render_template(
-    "stat.html",
-    category=cat,
-    play=play,
-    counters=counters,
-    values=stats[cat][play]
-)
-# -------------------------
-# OFFLINE URL LIST (for the service worker to precache)
-# -------------------------
-@app.route("/api/offline-urls")
-def offline_urls():
-    urls = []
-    for cat, plays in plays_by_category.items():
-        urls.append(f"/plays/{quote(cat)}")
-        for play in plays:
-            urls.append(f"/stat/{quote(cat)}/{quote(play)}")
-    return {"urls": urls}
+        "stat.html",
+        category=cat,
+        play=play,
+        counters=counters,
+        values=stats[cat][play]
+    )
 
 
 # -------------------------
@@ -105,13 +86,11 @@ def offline_urls():
 def home():
     return render_template("home.html")
 
-
 # -------------------------
 # SETUP PAGE
 # -------------------------
 @app.route("/setup", methods=["GET", "POST"])
 def setup():
-
     if request.method == "POST":
         opponent = request.form["opponent"]
         date = request.form["date"]
@@ -128,7 +107,6 @@ def setup():
 
     return render_template("setup.html")
 
-
 # -------------------------
 # CATEGORY PAGE
 # -------------------------
@@ -136,19 +114,13 @@ def setup():
 def category():
     return render_template("category.html")
 
-
 # -------------------------
 # PLAYS PAGE
 # -------------------------
 @app.route("/plays/<cat>")
 def plays(cat):
     play_list = plays_by_category.get(cat, [])
-
-    return render_template(
-        "plays.html",
-        category=cat,
-        plays=play_list
-    )
+    return render_template("plays.html", category=cat, plays=play_list)
 
 
 # -------------------------
@@ -158,13 +130,11 @@ def plays(cat):
 def summary():
     return render_template("summary.html", game=None, stats={})
 
-
-# -------------------------
+#-------------------------
 # Upload
-# -------------------------
+#------------------------
 @app.route("/api/upload-game", methods=["POST"])
 def upload_game():
-
     payload = request.get_json(silent=True)
 
     if not payload:
@@ -176,7 +146,7 @@ def upload_game():
     game = payload.get("game")
     play_stats = payload.get("playStats")
 
-    if not isinstance(game, dict):
+    if not game:
         return {
             "success": False,
             "message": "Game data is missing."
@@ -188,38 +158,22 @@ def upload_game():
             "message": "Play-stat data is missing."
         }, 400
 
-    if not isinstance(play_stats, list) or not all(
-        isinstance(record, dict) for record in play_stats
-    ):
-        return {
-            "success": False,
-            "message": "Play-stat data must be a list of objects."
-        }, 400
-
-    try:
-        play_stat_count = save_game_upload(game, play_stats)
-    except (RuntimeError, ValueError) as error:
-        return {
-            "success": False,
-            "message": str(error)
-        }, 503 if isinstance(error, RuntimeError) else 400
-    except PsycopgError:
-        app.logger.exception("Could not save game upload to PostgreSQL.")
-        return {
-            "success": False,
-            "message": "Could not save game to PostgreSQL."
-        }, 503
+    print("Upload received:")
+    print("Game ID:", game.get("id"))
+    print("Opponent:", game.get("opponent"))
+    print("Play-stat records:", len(play_stats))
 
     return {
         "success": True,
-        "message": "Game saved to PostgreSQL.",
+        "message": "Upload received by Flask.",
         "gameId": game.get("id"),
-        "playStatCount": play_stat_count
+        "playStatCount": len(play_stats)
     }, 200
-
 
 # -------------------------
 # RUN APP
 # -------------------------
 if __name__ == "__main__":
     app.run(debug=True)
+
+
